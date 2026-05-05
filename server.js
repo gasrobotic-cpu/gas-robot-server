@@ -6,20 +6,19 @@ app.use(express.json());
 // ================= DATA =================
 let robotRaw = {};
 let lastCommand = "";
-let gpsData = { lat: 0, lon: 0 };
 
-// ================= DATA RECEIVE =================
+// ================= RECEIVE =================
 app.post("/data", (req, res) => {
   robotRaw = req.body;
   res.send("OK");
 });
 
-// ================= DATA SEND (MAPPING) =================
+// ================= SEND (MAPPING) =================
 app.get("/data", (req, res) => {
 
   const d = robotRaw;
 
-  const mapped = {
+  res.json({
     H2S: d.G5 || 0,
     CO: d.G1 || 0,
     CO2: d.G7 || 0,
@@ -30,9 +29,7 @@ app.get("/data", (req, res) => {
     TEMP: d.T || 0,
     HUM: d.H || 0,
     SMOKE: d.G7 || 0
-  };
-
-  res.json(mapped);
+  });
 });
 
 // ================= CONTROL =================
@@ -48,59 +45,85 @@ app.get("/control", (req, res) => {
 // ================= DASHBOARD =================
 app.get("/", (req, res) => {
 res.send(`
-
 <!DOCTYPE html>
 <html>
 <head>
 <title>Industrial Robot</title>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
+
 body{
+  margin:0;
   background:#0b0f1a;
   color:white;
   font-family:Arial;
-  margin:0;
   display:flex;
 }
 
+/* SIDEBAR */
 .sidebar{
-  width:250px;
+  width:260px;
   background:#111827;
   padding:20px;
+  display:flex;
+  flex-direction:column;
+  gap:20px;
 }
 
+/* MAIN */
 .main{
   flex:1;
   padding:20px;
 }
 
+/* CARDS */
+.cards{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:15px;
+}
+
 .card{
   background:#1f2937;
-  padding:15px;
   border-radius:12px;
-  width:150px;
-  display:inline-block;
-  margin:10px;
+  padding:15px;
   text-align:center;
+  font-size:14px;
+}
+
+.card span{
+  font-size:22px;
+  display:block;
 }
 
 .danger{
   background:#7f1d1d;
 }
 
-button{
-  padding:10px;
-  margin:5px;
-  border:none;
-  border-radius:8px;
-}
-
+/* CONTROL GRID */
 .grid{
   display:grid;
   grid-template-columns:repeat(3,60px);
   gap:10px;
+  justify-content:center;
+}
+
+button{
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#1f2937;
+  color:white;
+}
+
+/* STATUS */
+.status{
+  background:#7f1d1d;
+  padding:10px;
+  border-radius:10px;
+  text-align:center;
+  margin-top:10px;
 }
 
 </style>
@@ -111,32 +134,31 @@ button{
 <!-- SIDEBAR -->
 <div class="sidebar">
 
-<h3>Mode</h3>
-<button onclick="send('WEB')">WEB</button>
-<button onclick="send('RC')">RC</button>
+<h3>🎮 Mode</h3>
+<button onclick="send('RC')">🎮 RC</button>
+<button onclick="send('WEB')">🌐 WEB</button>
 
-<h3>Speed</h3>
-<button onclick="send('SLOW')">Slow</button>
-<button onclick="send('MED')">Medium</button>
-<button onclick="send('FAST')">Fast</button>
+<h3>⚡ Speed</h3>
+<button onclick="send('SLOW')">🐢 Slow</button>
+<button onclick="send('MED')">🚗 Medium</button>
+<button onclick="send('FAST')">🚀 Fast</button>
 
-<h3>Control</h3>
-
+<h3>🎯 Control</h3>
 <div class="grid">
 <div></div>
-<button onmousedown="hold('FWD')" onmouseup="stop()" ontouchstart="hold('FWD')" ontouchend="stop()">↑</button>
+<button onmousedown="hold('FWD')" onmouseup="stop()" ontouchstart="hold('FWD')" ontouchend="stop()">⬆</button>
 <div></div>
 
-<button onmousedown="hold('LEFT')" onmouseup="stop()" ontouchstart="hold('LEFT')" ontouchend="stop()">←</button>
-<button onclick="send('STOP')">■</button>
-<button onmousedown="hold('RIGHT')" onmouseup="stop()" ontouchstart="hold('RIGHT')" ontouchend="stop()">→</button>
+<button onmousedown="hold('LEFT')" onmouseup="stop()" ontouchstart="hold('LEFT')" ontouchend="stop()">⬅</button>
+<button onclick="send('STOP')">⛔</button>
+<button onmousedown="hold('RIGHT')" onmouseup="stop()" ontouchstart="hold('RIGHT')" ontouchend="stop()">➡</button>
 
 <div></div>
-<button onmousedown="hold('BACK')" onmouseup="stop()" ontouchstart="hold('BACK')" ontouchend="stop()">↓</button>
+<button onmousedown="hold('BACK')" onmouseup="stop()" ontouchstart="hold('BACK')" ontouchend="stop()">⬇</button>
 <div></div>
 </div>
 
-<h3>Light</h3>
+<h3>💡 Light</h3>
 <button onclick="send('LIGHT_ON')">ON</button>
 <button onclick="send('LIGHT_OFF')">OFF</button>
 
@@ -145,12 +167,13 @@ button{
 <!-- MAIN -->
 <div class="main">
 
-<h2>Industrial Gas Monitoring</h2>
+<h2>📊 Industrial Gas Monitoring Dashboard</h2>
 
-<div id="cards"></div>
+<div class="cards" id="cards"></div>
 
-<h3 id="status">Status: SAFE</h3>
+<div id="status" class="status">Status: SAFE</div>
 
+<h3>📈 Multi-Gas Graph</h3>
 <canvas id="chart"></canvas>
 
 </div>
@@ -181,15 +204,19 @@ function stop(){
 
 // ================= GRAPH =================
 let labels=[];
-let co=[],h2s=[];
+let datasets={
+  CO:[], H2S:[], NH3:[], CH4:[]
+};
 
 const chart=new Chart(document.getElementById("chart"),{
   type:'line',
   data:{
     labels:labels,
     datasets:[
-      {label:'CO',data:co},
-      {label:'H2S',data:h2s}
+      {label:'CO',data:datasets.CO},
+      {label:'H2S',data:datasets.H2S},
+      {label:'NH3',data:datasets.NH3},
+      {label:'CH4',data:datasets.CH4}
     ]
   },
   options:{animation:false}
@@ -205,30 +232,36 @@ fetch('/data')
 let danger = d.CO>50 || d.H2S>20;
 
 document.getElementById("status").innerHTML =
-  "Status: " + (danger ? "DANGER" : "SAFE");
+  danger ? "⚠️ DANGER" : "✅ SAFE";
 
 document.getElementById("cards").innerHTML = \`
-<div class="card \${d.H2S>20?'danger':''}">H2S<br>\${d.H2S} ppm</div>
-<div class="card">CO<br>\${d.CO} ppm</div>
-<div class="card">CO2<br>\${d.CO2} ppm</div>
-<div class="card">NO2<br>\${d.NO2} ppm</div>
-<div class="card">NH3<br>\${d.NH3} ppm</div>
-<div class="card">CH4<br>\${d.CH4} ppm</div>
-<div class="card">O3<br>\${d.O3} ppm</div>
-<div class="card">TEMP<br>\${d.TEMP} °C</div>
-<div class="card">HUM<br>\${d.HUM} %</div>
+
+<div class="card">☠️ H2S<br>\${d.H2S} ppm</div>
+<div class="card">🔥 CO<br>\${d.CO} ppm</div>
+<div class="card">☁️ CO2<br>\${d.CO2} ppm</div>
+<div class="card">🧪 NO2<br>\${d.NO2} ppm</div>
+<div class="card">🤖 NH3<br>\${d.NH3} ppm</div>
+
+<div class="card">💨 CH4<br>\${d.CH4} ppm</div>
+<div class="card">🧬 O3<br>\${d.O3} ppm</div>
+<div class="card">🌡 TEMP<br>\${d.TEMP} °C</div>
+<div class="card">💧 HUM<br>\${d.HUM} %</div>
+<div class="card">🌫 SMOKE<br>\${d.SMOKE} %</div>
+
 \`;
 
 let t=new Date().toLocaleTimeString();
 
 labels.push(t);
-co.push(d.CO);
-h2s.push(d.H2S);
+
+datasets.CO.push(d.CO);
+datasets.H2S.push(d.H2S);
+datasets.NH3.push(d.NH3);
+datasets.CH4.push(d.CH4);
 
 if(labels.length>10){
 labels.shift();
-co.shift();
-h2s.shift();
+for(let k in datasets) datasets[k].shift();
 }
 
 chart.update();
@@ -242,7 +275,6 @@ setInterval(update,2000);
 
 </body>
 </html>
-
 `);
 });
 
