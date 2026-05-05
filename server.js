@@ -67,9 +67,9 @@ body {
 }
 
 button {
-  padding:15px;
+  padding:14px;
   margin:6px;
-  font-size:18px;
+  font-size:16px;
   border-radius:10px;
   border:none;
   cursor:pointer;
@@ -84,10 +84,22 @@ button {
 
 .card {
   background:#1e293b;
-  padding:10px;
-  margin:5px;
-  border-radius:10px;
+  padding:12px;
+  margin:6px;
+  border-radius:12px;
   display:inline-block;
+  width:90px;
+  font-size:14px;
+  box-shadow:0 0 10px rgba(0,0,0,0.4);
+}
+
+.danger {
+  background:red !important;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  50% { opacity:0.4; }
 }
 </style>
 </head>
@@ -132,9 +144,12 @@ button {
 
 <h3>Location</h3>
 <div id="gps">Loading...</div>
+<button onclick="openMap()">Open Map</button>
 
 <h3>Camera</h3>
 <img src="http://YOUR_CAMERA_IP:81/stream" width="320">
+
+<audio id="alarm" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg"></audio>
 
 <script>
 
@@ -148,34 +163,24 @@ function send(cmd){
 }
 
 // ================= HOLD =================
-function startMove(cmd){
-  send(cmd);
-}
-
-function stopMove(){
-  send('STOP');
-}
+function startMove(cmd){ send(cmd); }
+function stopMove(){ send('STOP'); }
 
 // ================= GRAPH =================
 let labels = [];
 let coData = [];
 let nh3Data = [];
 
-const ctx = document.getElementById('chart');
-
-const chart = new Chart(ctx, {
+const chart = new Chart(document.getElementById('chart'), {
   type: 'line',
   data: {
     labels: labels,
     datasets: [
-      { label: 'CO', data: coData, borderWidth: 2 },
-      { label: 'NH3', data: nh3Data, borderWidth: 2 }
+      { label: 'CO', data: coData },
+      { label: 'NH3', data: nh3Data }
     ]
   },
-  options: {
-    responsive: true,
-    animation: false
-  }
+  options: { animation:false }
 });
 
 // ================= DATA =================
@@ -184,8 +189,25 @@ function updateData(){
   .then(r=>r.json())
   .then(d=>{
 
-    document.getElementById("data").innerHTML =
-      "CO: "+(d.CO||0)+" | NH3: "+(d.NH3||0)+" | TEMP: "+(d.TEMP||0);
+    let danger = false;
+
+    if(d.CO > 50 || d.H2S > 20) danger = true;
+
+    if(danger){
+      document.getElementById("alarm").play();
+    }
+
+    document.getElementById("data").innerHTML = \`
+      <div class="card \${d.CO>50?'danger':''}">CO<br><b>\${d.CO||0}</b></div>
+      <div class="card \${d.NH3>50?'danger':''}">NH3<br><b>\${d.NH3||0}</b></div>
+      <div class="card">NO2<br><b>\${d.NO2||0}</b></div>
+      <div class="card">CH4<br><b>\${d.CH4||0}</b></div>
+      <div class="card \${d.H2S>20?'danger':''}">H2S<br><b>\${d.H2S||0}</b></div>
+      <div class="card">O3<br><b>\${d.O3||0}</b></div>
+      <div class="card">CO2<br><b>\${d.CO2||0}</b></div>
+      <div class="card">TEMP<br><b>\${d.TEMP||0}</b></div>
+      <div class="card">HUM<br><b>\${d.HUM||0}</b></div>
+    \`;
 
     let time = new Date().toLocaleTimeString();
 
@@ -213,6 +235,15 @@ function updateGPS(){
   });
 }
 
+function openMap(){
+  fetch('/gps')
+  .then(r=>r.json())
+  .then(g=>{
+    window.open("https://maps.google.com/?q="+g.lat+","+g.lon);
+  });
+}
+
+// ================= LOOP =================
 setInterval(updateData,2000);
 setInterval(updateGPS,3000);
 
@@ -223,8 +254,6 @@ setInterval(updateGPS,3000);
 `);
 });
 
-// ==========================
-// START SERVER
 // ==========================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server running"));
