@@ -306,12 +306,12 @@ const chart = new Chart(document.getElementById("chart"), {
     labels: labels,
     datasets: [
       {label:'CO', data:dataSets.CO, borderColor:'#f87171'},
-      {label:'H2S', data:dataSets.H2S, borderColor:'#facc15'},
-      {label:'NH3', data:dataSets.NH3, borderColor:'#4ade80'},
-      {label:'CH4', data:dataSets.CH4, borderColor:'#60a5fa'},
-      {label:'NO2', data:dataSets.NO2, borderColor:'#c084fc'},
-      {label:'CO2', data:dataSets.CO2, borderColor:'#fb923c'},
-      {label:'O3', data:dataSets.O3, borderColor:'#2dd4bf'}
+      {label:'H₂S', data:dataSets.H2S, borderColor:'#facc15'},
+      {label:'NH₃', data:dataSets.NH3, borderColor:'#4ade80'},
+      {label:'CH₄', data:dataSets.CH4, borderColor:'#60a5fa'},
+      {label:'NO₂', data:dataSets.NO2, borderColor:'#c084fc'},
+      {label:'CO₂', data:dataSets.CO2, borderColor:'#fb923c'},
+      {label:'O₃', data:dataSets.O3, borderColor:'#2dd4bf'}
     ]
   },
   options: { animation: false }
@@ -341,17 +341,18 @@ function update() {
       document.getElementById("status").innerHTML =
         danger ? "⚠️ DANGER" : "✅ SAFE";
 
+      // ✅ بطاقات بأسماء الغازات
       document.getElementById("cards").innerHTML =
-        '<div class="card ' + (d.H2S>20?'danger':'') + '">☠️<span>' + safeText(d.H2S) + '</span>ppm</div>' +
-        '<div class="card ' + (d.CO>50?'danger':'') + '">🔥<span>' + safeText(d.CO) + '</span>ppm</div>' +
-        '<div class="card">☁️<span>' + safeText(d.CO2) + '</span>ppm</div>' +
-        '<div class="card">🧪<span>' + safeText(d.NO2) + '</span>ppm</div>' +
-        '<div class="card">🤖<span>' + safeText(d.NH3) + '</span>ppm</div>' +
-        '<div class="card">💨<span>' + safeText(d.CH4) + '</span>ppm</div>' +
-        '<div class="card">🧬<span>' + safeText(d.O3) + '</span>ppm</div>' +
-        '<div class="card">🌡<span>' + safeText(d.TEMP) + '</span>°C</div>' +
-        '<div class="card">💧<span>' + safeText(d.HUM) + '</span>%</div>' +
-        '<div class="card">🌫<span>' + safeText(d.SMOKE) + '</span>%</div>';
+        '<div class="card ' + (d.H2S>20?'danger':'') + '">☠️ H₂S<span>' + safeText(d.H2S) + '</span>ppm</div>' +
+        '<div class="card ' + (d.CO>50?'danger':'') + '">🔥 CO<span>' + safeText(d.CO) + '</span>ppm</div>' +
+        '<div class="card">☁️ CO₂<span>' + safeText(d.CO2) + '</span>ppm</div>' +
+        '<div class="card">🧪 NO₂<span>' + safeText(d.NO2) + '</span>ppm</div>' +
+        '<div class="card">🤖 NH₃<span>' + safeText(d.NH3) + '</span>ppm</div>' +
+        '<div class="card">💨 CH₄<span>' + safeText(d.CH4) + '</span>ppm</div>' +
+        '<div class="card">🧬 O₃<span>' + safeText(d.O3) + '</span>ppm</div>' +
+        '<div class="card">🌡 TEMP<span>' + safeText(d.TEMP) + '</span>°C</div>' +
+        '<div class="card">💧 HUM<span>' + safeText(d.HUM) + '</span>%</div>' +
+        '<div class="card">🌫 SMOKE<span>' + safeText(d.SMOKE) + '</span>%</div>';
 
       let t = new Date().toLocaleTimeString();
       labels.push(t);
@@ -383,7 +384,7 @@ function update() {
     .then(arr => {
       if (!Array.isArray(arr)) return;
       document.getElementById("logs").innerHTML = arr.map(l =>
-        '<div>' + l.time + ' | CO:' + safeText(l.CO) + ' | H2S:' + safeText(l.H2S) + '</div>'
+        '<div>' + l.time + ' | CO:' + safeText(l.CO) + ' | H₂S:' + safeText(l.H2S) + '</div>'
       ).join('');
     })
     .catch(err => console.error('Logs fetch error:', err));
