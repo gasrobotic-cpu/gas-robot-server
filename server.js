@@ -7,19 +7,17 @@ app.use(express.json());
 let robotRaw = {};
 let lastCommand = "";
 let gpsData = { lat: 0, lon: 0 };
-let logs = [];
+let logs = []; // آخر 20 قراءة
 
 // ================= RECEIVE =================
 app.post("/data", (req, res) => {
   robotRaw = req.body || {};
 
   const d = mapData(robotRaw);
-
   logs.unshift({
     time: new Date().toLocaleTimeString(),
     ...d
   });
-
   if (logs.length > 20) logs.pop();
 
   res.send("OK");
@@ -30,7 +28,7 @@ app.post("/gps", (req, res) => {
   res.send("OK");
 });
 
-// ================= SMART MAPPING =================
+// ================= FIXED MAPPING =================
 function mapData(d) {
   return {
     H2S: d.H2S ?? d.G5 ?? 0,
@@ -46,7 +44,7 @@ function mapData(d) {
   };
 }
 
-// ================= API =================
+// ================= SEND =================
 app.get("/data", (req, res) => res.json(mapData(robotRaw)));
 app.get("/logs", (req, res) => res.json(logs));
 app.get("/gps", (req, res) => res.json(gpsData));
@@ -55,17 +53,15 @@ app.post("/control", (req, res) => {
   lastCommand = req.body.cmd;
   res.send("OK");
 });
-
 app.get("/control", (req, res) => res.send(lastCommand));
 
 // ================= DASHBOARD =================
 app.get("/", (req, res) => {
 res.send(`
-
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Industrial Robot</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -73,6 +69,7 @@ res.send(`
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
+*{box-sizing:border-box}
 body{
   margin:0;
   background:#0b0f1a;
@@ -84,6 +81,9 @@ body{
   width:260px;
   background:#111827;
   padding:20px;
+  display:flex;
+  flex-direction:column;
+  gap:20px;
 }
 .main{
   flex:1;
@@ -99,18 +99,11 @@ body{
   border-radius:12px;
   padding:15px;
   text-align:center;
+  transition:0.3s;
 }
-.card span{
-  font-size:22px;
-  display:block;
-}
-.danger{
-  background:#7f1d1d;
-  animation:pulse 1s infinite;
-}
-@keyframes pulse{
-  50%{opacity:0.5;}
-}
+.card span{font-size:22px; display:block;}
+.danger{ background:#7f1d1d; animation:pulse 1s infinite; }
+@keyframes pulse{50%{opacity:0.5;}}
 .grid{
   display:grid;
   grid-template-columns:repeat(3,70px);
@@ -119,8 +112,8 @@ body{
 }
 .ctrl-btn{
   padding:12px;
-  border:none;
   border-radius:10px;
+  border:none;
   background:#1f2937;
   color:white;
   font-size:18px;
@@ -132,6 +125,7 @@ body{
   border-radius:10px;
   text-align:center;
   margin-top:10px;
+  font-weight:bold;
 }
 .bottom{
   display:grid;
@@ -148,6 +142,11 @@ body{
   overflow:auto;
   font-size:12px;
 }
+.camera{
+  margin-top:15px;
+  border-radius:12px;
+  overflow:hidden;
+}
 </style>
 </head>
 
@@ -156,13 +155,13 @@ body{
 <div class="sidebar">
 
 <h3>🎮 Mode</h3>
-<button onclick="send('RC')">RC</button>
-<button onclick="send('WEB')">WEB</button>
+<button onclick="send('RC')">🎮 RC</button>
+<button onclick="send('WEB')">🌐 WEB</button>
 
 <h3>⚡ Speed</h3>
-<button onclick="send('SLOW')">Slow</button>
-<button onclick="send('MED')">Medium</button>
-<button onclick="send('FAST')">Fast</button>
+<button onclick="send('SLOW')">🐢</button>
+<button onclick="send('MED')">🚗</button>
+<button onclick="send('FAST')">🚀</button>
 
 <h3>🎯 Control</h3>
 
@@ -172,7 +171,7 @@ body{
 <div></div>
 
 <button class="ctrl-btn" data-cmd="LEFT">⬅</button>
-<button onclick="send('STOP')">⛔</button>
+<button class="ctrl-btn" onclick="send('STOP')">⛔</button>
 <button class="ctrl-btn" data-cmd="RIGHT">➡</button>
 
 <div></div>
@@ -184,45 +183,51 @@ body{
 <button onclick="send('LIGHT_ON')">ON</button>
 <button onclick="send('LIGHT_OFF')">OFF</button>
 
-<h3>📷 Camera</h3>
+<div class="camera">
+<h4>📷 Camera</h4>
 <img src="http://YOUR_CAMERA_IP:81/stream" width="100%">
+</div>
 
 </div>
 
 <div class="main">
 
-<h2>📊 Dashboard</h2>
+<h2>📊 Industrial Gas Monitoring Dashboard</h2>
 
-<div id="cards" class="cards"></div>
+<div class="cards" id="cards"></div>
 
-<div id="status" class="status">SAFE</div>
+<div id="status" class="status">Status: SAFE</div>
 
+<h3>📈 Multi-Gas Trend</h3>
 <canvas id="chart"></canvas>
 
 <div class="bottom">
-  <div id="map"></div>
-  <div id="logs"></div>
+  <div>
+    <h3>📍 Map</h3>
+    <div id="map"></div>
+  </div>
+
+  <div>
+    <h3>📄 Logs</h3>
+    <div id="logs"></div>
+  </div>
 </div>
 
 </div>
 
 <script>
 
-// ===== CONTROL (FIXED FAST RESPONSE) =====
+// ===== FIXED CONTROL (NO DELAY) =====
 let active=false;
 
 function send(cmd){
-  fetch('/control',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({cmd})
-  });
+  fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd})});
 }
 
-function bind(btn){
+function bindHold(btn){
   let cmd = btn.dataset.cmd;
 
-  btn.addEventListener("pointerdown",(e)=>{
+  btn.addEventListener('pointerdown',(e)=>{
     e.preventDefault();
     active=true;
 
@@ -234,29 +239,26 @@ function bind(btn){
     loop();
   });
 
-  const stop=()=>{
+  const stopNow = ()=>{
     active=false;
     send("STOP");
   };
 
-  btn.addEventListener("pointerup",stop);
-  btn.addEventListener("pointerleave",stop);
-  btn.addEventListener("touchend",stop);
+  btn.addEventListener('pointerup', stopNow);
+  btn.addEventListener('pointerleave', stopNow);
+  btn.addEventListener('touchend', stopNow);
+  btn.addEventListener('touchcancel', stopNow);
 }
 
-document.querySelectorAll(".ctrl-btn").forEach(bind);
+document.querySelectorAll('.ctrl-btn').forEach(bindHold);
 
 // ===== GRAPH =====
 let labels=[];
-let dataSets={
- CO:[],H2S:[],NH3:[],CH4:[],NO2:[],CO2:[],O3:[]
-};
+let dataSets={CO:[],H2S:[],NH3:[],CH4:[],NO2:[],CO2:[],O3:[]};
 
 const chart=new Chart(document.getElementById("chart"),{
  type:'line',
- data:{
-  labels:labels,
-  datasets:[
+ data:{labels:labels,datasets:[
    {label:'CO',data:dataSets.CO},
    {label:'H2S',data:dataSets.H2S},
    {label:'NH3',data:dataSets.NH3},
@@ -264,8 +266,7 @@ const chart=new Chart(document.getElementById("chart"),{
    {label:'NO2',data:dataSets.NO2},
    {label:'CO2',data:dataSets.CO2},
    {label:'O3',data:dataSets.O3}
-  ]
- },
+ ]},
  options:{animation:false}
 });
 
@@ -281,26 +282,28 @@ fetch('/data')
 .then(r=>r.json())
 .then(d=>{
 
-document.getElementById("cards").innerHTML = \`
-<div class="card">☠️ H2S<br><span>\${d.H2S}</span> ppm</div>
-<div class="card">🔥 CO<br><span>\${d.CO}</span> ppm</div>
-<div class="card">☁️ CO2<br><span>\${d.CO2}</span> ppm</div>
-<div class="card">🧪 NO2<br><span>\${d.NO2}</span> ppm</div>
-<div class="card">🤖 NH3<br><span>\${d.NH3}</span> ppm</div>
+let danger = d.CO>50 || d.H2S>20;
+document.getElementById("status").innerHTML =
+  danger ? "⚠️ DANGER" : "✅ SAFE";
 
-<div class="card">💨 CH4<br><span>\${d.CH4}</span> ppm</div>
-<div class="card">🧬 O3<br><span>\${d.O3}</span> ppm</div>
-<div class="card">🌡 TEMP<br><span>\${d.TEMP}</span> °C</div>
-<div class="card">💧 HUM<br><span>\${d.HUM}</span> %</div>
-<div class="card">🌫 SMOKE<br><span>\${d.SMOKE}</span> %</div>
+document.getElementById("cards").innerHTML = \`
+<div class="card \${d.H2S>20?'danger':''}">☠️<span>\${d.H2S}</span>ppm</div>
+<div class="card \${d.CO>50?'danger':''}">🔥<span>\${d.CO}</span>ppm</div>
+<div class="card">☁️<span>\${d.CO2}</span>ppm</div>
+<div class="card">🧪<span>\${d.NO2}</span>ppm</div>
+<div class="card">🤖<span>\${d.NH3}</span>ppm</div>
+
+<div class="card">💨<span>\${d.CH4}</span>ppm</div>
+<div class="card">🧬<span>\${d.O3}</span>ppm</div>
+<div class="card">🌡<span>\${d.TEMP}</span>°C</div>
+<div class="card">💧<span>\${d.HUM}</span>%</div>
+<div class="card">🌫<span>\${d.SMOKE}</span>%</div>
 \`;
 
 let t=new Date().toLocaleTimeString();
 labels.push(t);
 
-for(let k in dataSets){
- dataSets[k].push(d[k]||0);
-}
+for(let k in dataSets){ dataSets[k].push(d[k]||0); }
 
 if(labels.length>15){
  labels.shift();
@@ -336,7 +339,6 @@ setInterval(update,2000);
 
 </body>
 </html>
-
 `);
 });
 
