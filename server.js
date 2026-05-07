@@ -119,6 +119,17 @@ body{
   flex:1;
   padding:20px;
 }
+.camera-section{
+  width:100%;
+  margin-bottom:20px;
+  text-align:center;
+}
+#camera-img{
+  width:100%;
+  max-width:640px;
+  border-radius:12px;
+  border:2px solid #1f2937;
+}
 .cards{
   display:grid;
   grid-template-columns:repeat(5,1fr);
@@ -172,14 +183,6 @@ body{
   overflow:auto;
   font-size:12px;
 }
-.camera{
-  margin-top:15px;
-  border-radius:12px;
-  overflow:hidden;
-}
-#camera-img{
-  width:100%;
-}
 </style>
 </head>
 
@@ -216,16 +219,17 @@ body{
 <button onclick="sendCmd('LIGHT_ON')">ON</button>
 <button onclick="sendCmd('LIGHT_OFF')">OFF</button>
 
-<div class="camera">
-<h4>📷 Camera</h4>
-<img id="camera-img" width="100%" alt="كاميرا الروبوت">
-</div>
-
 </div>
 
 <div class="main">
 
 <h2>📊 Industrial Gas Monitoring Dashboard</h2>
+
+<!-- 📷 الكاميرا في الأعلى -->
+<div class="camera-section">
+  <h4>📷 Live Camera</h4>
+  <img id="camera-img" alt="كاميرا الروبوت">
+</div>
 
 <div class="cards" id="cards"></div>
 
