@@ -1,4 +1,6 @@
 const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
 const app = express();
 
 // تعطيل توقيع الخادم لأمان أفضل
@@ -11,6 +13,9 @@ let robotRaw = {};
 let lastCommand = "";
 let gpsData = { lat: 0, lon: 0 };
 let logs = []; // آخر 20 قراءة
+
+// أحدث إطار صورة من الكاميرا (بيانات ثنائية)
+let latestFrame = null;
 
 // ================= أوامر مسموحة (قائمة بيضاء) =================
 const ALLOWED_COMMANDS = new Set([
@@ -172,6 +177,9 @@ body{
   border-radius:12px;
   overflow:hidden;
 }
+#camera-img{
+  width:100%;
+}
 </style>
 </head>
 
@@ -210,7 +218,7 @@ body{
 
 <div class="camera">
 <h4>📷 Camera</h4>
-<img src="http://YOUR_CAMERA_IP:81/stream" width="100%">
+<img id="camera-img" width="100%" alt="كاميرا الروبوت">
 </div>
 
 </div>
@@ -328,6 +336,33 @@ function safeText(val) {
   return val.toFixed(1);
 }
 
+// ===== WEBSOCKET للكاميرا =====
+const camImg = document.getElementById('camera-img');
+const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+const wsUrl = protocol + '://' + location.host;
+let camSocket = null;
+
+function connectCamera() {
+  camSocket = new WebSocket(wsUrl);
+  camSocket.binaryType = 'arraybuffer';
+
+  camSocket.onopen = () => console.log('Camera WebSocket connected');
+  camSocket.onmessage = (event) => {
+    const blob = new Blob([event.data], { type: 'image/jpeg' });
+    const url = URL.createObjectURL(blob);
+    camImg.src = url;
+    // تنظيف الرابط المؤقت السابق بعد قليل
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  camSocket.onclose = () => {
+    console.log('Camera WebSocket closed, retrying in 3s');
+    setTimeout(connectCamera, 3000);
+  };
+  camSocket.onerror = (err) => console.error('Camera WebSocket error:', err);
+}
+
+connectCamera();
+
 // ===== UPDATE =====
 function update() {
   // ✅ جلب البيانات مع معالجة الأخطاء
@@ -401,6 +436,50 @@ setInterval(update, 2000);
   `);
 });
 
+// ================== إنشاء HTTP server و WebSocket server ==================
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+// مجموعة عملاء المتصفحات وقناة الكاميرا
+const clients = new Set();
+let cameraSocket = null;
+
+wss.on("connection", (ws, req) => {
+  const path = req.url;
+
+  // قناة الكاميرا (ترسل إطارات JPEG)
+  if (path === "/cam-stream") {
+    console.log("📷 Camera connected via WebSocket");
+    cameraSocket = ws;
+    ws.on("message", (data) => {
+      // استقبل الإطار الثنائي من ESP32-CAM
+      latestFrame = data;
+      // بث الإطار إلى جميع المتصفحات المتصلة
+      for (const client of clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data);
+        }
+      }
+    });
+    ws.on("close", () => {
+      console.log("📷 Camera disconnected");
+      cameraSocket = null;
+    });
+    return;
+  }
+
+  // اتصال متصفح عادي
+  console.log("🌐 Browser client connected");
+  clients.add(ws);
+  // أرسل آخر إطار موجود فور الاتصال
+  if (latestFrame && ws.readyState === WebSocket.OPEN) {
+    ws.send(latestFrame);
+  }
+  ws.on("close", () => {
+    clients.delete(ws);
+  });
+});
+
 // ================= START =================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on port", PORT));
+server.listen(PORT, () => console.log("✅ Server running on port", PORT));
