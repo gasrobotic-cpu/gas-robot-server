@@ -294,11 +294,7 @@ button:hover{
 
 <script>
 
-// ===== THROTTLE لتفادي فيض الطلبات =====
-let active = false;
-let lastSent = 0;
-const THROTTLE_MS = 100; // أقصى معدل: 10 طلبات في الثانية
-
+// ===== إرسال أوامر سريع =====
 function sendCmd(cmd) {
   fetch('/control', {
     method: 'POST',
@@ -307,31 +303,25 @@ function sendCmd(cmd) {
   }).catch(err => console.error('Command failed:', err));
 }
 
-// ✅ ربط الأزرار مع throttle
+// ===== أزرار الاتجاهات مع setInterval للسرعة =====
 function bindHold(btn) {
   let cmd = btn.dataset.cmd;
-  if (!cmd) return; // ✅ إذا لم يوجد أمر (مثلاً زر STOP محمي)
+  if (!cmd) return;
+
+  let intervalId = null;
 
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    active = true;
-
-    function loop() {
-      if (!active) return;
-      let now = Date.now();
-      if (now - lastSent >= THROTTLE_MS) {
-        sendCmd(cmd);
-        lastSent = now;
-      }
-      requestAnimationFrame(loop);
-    }
-    loop();
+    sendCmd(cmd); // أرسل أول أمر فوراً
+    intervalId = setInterval(() => sendCmd(cmd), 100); // ثم كل 100 مللي ثانية
   });
 
   const stopNow = () => {
-    active = false;
-    lastSent = 0;
-    sendCmd("STOP");
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    sendCmd("STOP"); // أرسل STOP عند رفع الإصبع
   };
 
   btn.addEventListener('pointerup', stopNow);
@@ -395,7 +385,6 @@ function connectCamera() {
     const blob = new Blob([event.data], { type: 'image/jpeg' });
     const url = URL.createObjectURL(blob);
     camImg.src = url;
-    // تنظيف الرابط المؤقت السابق بعد قليل
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   camSocket.onclose = () => {
