@@ -76,7 +76,6 @@ app.get("/gps", (req, res) => res.json(gpsData));
 
 app.post("/control", (req, res) => {
   const cmd = req.body.cmd;
-  // ✅ تحقق من القائمة البيضاء
   if (!cmd || !ALLOWED_COMMANDS.has(cmd)) {
     return res.status(400).send("BAD COMMAND");
   }
@@ -294,13 +293,25 @@ button:hover{
 
 <script>
 
-// ===== إرسال أوامر سريع =====
+// ===== WEBSOCKET للتحكم السريع (مباشر) =====
+const controlWs = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/control-ws');
+controlWs.onopen = () => console.log('🎮 Control WebSocket connected');
+controlWs.onclose = () => console.log('🎮 Control WebSocket disconnected');
+controlWs.onerror = (err) => console.error('🎮 Control WebSocket error:', err);
+
 function sendCmd(cmd) {
-  fetch('/control', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd })
-  }).catch(err => console.error('Command failed:', err));
+  // إرسال عبر WebSocket للتحكم الفوري (مثل النظام القديم)
+  if (controlWs.readyState === WebSocket.OPEN) {
+    controlWs.send(JSON.stringify({ cmd: cmd }));
+    console.log('🎮 Sent via WS:', cmd);
+  } else {
+    // احتياطي: HTTP POST إذا كان WebSocket غير متصل
+    fetch('/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd })
+    }).catch(err => console.error('Command HTTP fallback failed:', err));
+  }
 }
 
 // ===== أزرار الاتجاهات مع setInterval للسرعة =====
@@ -372,29 +383,21 @@ function safeText(val) {
 
 // ===== WEBSOCKET للكاميرا =====
 const camImg = document.getElementById('camera-img');
-const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-const wsUrl = protocol + '://' + location.host;
-let camSocket = null;
+const camSocket = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
+camSocket.binaryType = 'arraybuffer';
 
-function connectCamera() {
-  camSocket = new WebSocket(wsUrl);
-  camSocket.binaryType = 'arraybuffer';
-
-  camSocket.onopen = () => console.log('Camera WebSocket connected');
-  camSocket.onmessage = (event) => {
-    const blob = new Blob([event.data], { type: 'image/jpeg' });
-    const url = URL.createObjectURL(blob);
-    camImg.src = url;
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-  camSocket.onclose = () => {
-    console.log('Camera WebSocket closed, retrying in 3s');
-    setTimeout(connectCamera, 3000);
-  };
-  camSocket.onerror = (err) => console.error('Camera WebSocket error:', err);
-}
-
-connectCamera();
+camSocket.onopen = () => console.log('📷 Camera WebSocket connected');
+camSocket.onmessage = (event) => {
+  const blob = new Blob([event.data], { type: 'image/jpeg' });
+  const url = URL.createObjectURL(blob);
+  camImg.src = url;
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+camSocket.onclose = () => {
+  console.log('📷 Camera WebSocket closed, retrying in 3s');
+  setTimeout(() => location.reload(), 3000);
+};
+camSocket.onerror = (err) => console.error('📷 Camera WebSocket error:', err);
 
 // ===== UPDATE =====
 function update() {
@@ -473,8 +476,10 @@ setInterval(update, 2000);
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// مجموعة عملاء المتصفحات وقناة الكاميرا
+// مجموعة عملاء المتصفحات (للكاميرا)
 const clients = new Set();
+// مجموعة عملاء التحكم (ESP32 + متصفحات)
+const controlClients = new Set();
 let cameraSocket = null;
 
 wss.on("connection", (ws, req) => {
@@ -501,7 +506,39 @@ wss.on("connection", (ws, req) => {
     return;
   }
 
-  // اتصال متصفح عادي
+  // قناة التحكم (جديدة للتحكم المباشر)
+  if (path === "/control-ws") {
+    console.log("🎮 Control client connected");
+    controlClients.add(ws);
+    
+    ws.on("message", (data) => {
+      try {
+        const msg = JSON.parse(data);
+        const cmd = msg.cmd;
+        if (cmd && ALLOWED_COMMANDS.has(cmd)) {
+          lastCommand = cmd;
+          console.log("🎮 Command received:", cmd);
+          // بث الأمر إلى جميع عملاء التحكم الآخرين (بما فيهم ESP32)
+          for (const client of controlClients) {
+            if (client !== ws && client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ cmd: cmd }));
+              console.log("🎮 Relayed command to client");
+            }
+          }
+        }
+      } catch (e) {
+        console.log("Invalid control message:", e);
+      }
+    });
+    
+    ws.on("close", () => {
+      console.log("🎮 Control client disconnected");
+      controlClients.delete(ws);
+    });
+    return;
+  }
+
+  // اتصال متصفح عادي (كاميرا)
   console.log("🌐 Browser client connected");
   clients.add(ws);
   // أرسل آخر إطار موجود فور الاتصال
