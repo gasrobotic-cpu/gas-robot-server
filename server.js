@@ -95,8 +95,8 @@ app.get("/", (req, res) => {
 <title>Industrial Robot</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
 *{box-sizing:border-box}
@@ -106,6 +106,7 @@ body{
   color:white;
   font-family:Arial;
   display:flex;
+  min-height:100vh;
 }
 .sidebar{
   width:260px;
@@ -114,10 +115,19 @@ body{
   display:flex;
   flex-direction:column;
   gap:20px;
+  position:fixed;
+  top:0;
+  left:0;
+  height:100vh;
+  overflow-y:auto;
+  z-index:1000;
 }
 .main{
   flex:1;
   padding:20px;
+  margin-left:260px;
+  display:flex;
+  flex-direction:column;
 }
 .camera-section{
   width:100%;
@@ -159,6 +169,10 @@ body{
   color:white;
   font-size:18px;
   touch-action:none;
+  cursor:pointer;
+}
+.ctrl-btn:active{
+  background:#374151;
 }
 .status{
   background:#1f2937;
@@ -170,11 +184,22 @@ body{
 }
 .bottom{
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:1fr;
   gap:20px;
   margin-top:20px;
 }
-#map{height:300px;border-radius:12px;}
+#map{
+  height:500px;
+  border-radius:12px;
+  width:100%;
+  z-index:1;
+}
+.map-container{
+  width:100%;
+}
+.map-container h3{
+  margin-bottom:10px;
+}
 #logs{
   background:#1f2937;
   padding:10px;
@@ -182,6 +207,19 @@ body{
   max-height:300px;
   overflow:auto;
   font-size:12px;
+}
+button{
+  padding:10px;
+  border-radius:8px;
+  border:none;
+  background:#374151;
+  color:white;
+  cursor:pointer;
+  font-size:14px;
+  transition:0.2s;
+}
+button:hover{
+  background:#4b5563;
 }
 </style>
 </head>
@@ -239,11 +277,13 @@ body{
 <canvas id="chart"></canvas>
 
 <div class="bottom">
-  <div>
-    <h3>📍 Map</h3>
+  <!-- 🗺️ الخريطة أولاً -->
+  <div class="map-container">
+    <h3>📍 Live Location Map</h3>
     <div id="map"></div>
   </div>
-
+  
+  <!-- 📄 Logs ثانياً -->
   <div>
     <h3>📄 Logs</h3>
     <div id="logs"></div>
