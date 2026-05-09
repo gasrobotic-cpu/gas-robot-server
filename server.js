@@ -76,6 +76,7 @@ app.get("/gps", (req, res) => res.json(gpsData));
 
 app.post("/control", (req, res) => {
   const cmd = req.body.cmd;
+  // ✅ تحقق من القائمة البيضاء
   if (!cmd || !ALLOWED_COMMANDS.has(cmd)) {
     return res.status(400).send("BAD COMMAND");
   }
@@ -219,6 +220,12 @@ button{
 }
 button:hover{
   background:#4b5563;
+}
+/* ✅ تنسيق خاص للبطاقات المخفية */
+.card.hidden-card {
+  opacity: 0.5;
+  background: #0f172a;
+  border: 1px dashed #374151;
 }
 </style>
 </head>
@@ -400,6 +407,15 @@ camSocket.onclose = () => {
 camSocket.onerror = (err) => console.error('📷 Camera WebSocket error:', err);
 
 // ===== UPDATE =====
+// ✅ قائمة الغازات التي تظهر دائماً
+const alwaysShowGases = ['H2S', 'CO', 'CO2', 'NO2', 'NH3', 'O3'];
+// ✅ الغازات التي تبدأ بصفر
+const startAtZeroGases = ['CH4', 'SMOKE'];
+
+// ✅ قيمة أولية للغازات التي تبدأ بصفر
+let zeroGasesValues = {};
+startAtZeroGases.forEach(g => { zeroGasesValues[g] = 0; });
+
 function update() {
   // ✅ جلب البيانات مع معالجة الأخطاء
   fetch('/data')
@@ -412,18 +428,44 @@ function update() {
       document.getElementById("status").innerHTML =
         danger ? "⚠️ DANGER" : "✅ SAFE";
 
-      // ✅ بطاقات بأسماء الغازات
-      document.getElementById("cards").innerHTML =
-        '<div class="card ' + (d.H2S>20?'danger':'') + '">☠️ H₂S<span>' + safeText(d.H2S) + '</span>ppm</div>' +
-        '<div class="card ' + (d.CO>50?'danger':'') + '">🔥 CO<span>' + safeText(d.CO) + '</span>ppm</div>' +
-        '<div class="card">☁️ CO₂<span>' + safeText(d.CO2) + '</span>ppm</div>' +
-        '<div class="card">🧪 NO₂<span>' + safeText(d.NO2) + '</span>ppm</div>' +
-        '<div class="card">🤖 NH₃<span>' + safeText(d.NH3) + '</span>ppm</div>' +
-        '<div class="card">💨 CH₄<span>' + safeText(d.CH4) + '</span>ppm</div>' +
-        '<div class="card">🧬 O₃<span>' + safeText(d.O3) + '</span>ppm</div>' +
-        '<div class="card">🌡 TEMP<span>' + safeText(d.TEMP) + '</span>°C</div>' +
-        '<div class="card">💧 HUM<span>' + safeText(d.HUM) + '</span>%</div>' +
-        '<div class="card">🌫 SMOKE<span>' + safeText(d.SMOKE) + '</span>%</div>';
+      // ✅ تحديث قيم الغازات التي تبدأ بصفر بأحدث قيمة من الخادم
+      startAtZeroGases.forEach(g => {
+        if (d[g] !== undefined && d[g] !== 0) {
+          zeroGasesValues[g] = d[g];
+        }
+      });
+
+      // ✅ بناء البطاقات بالترتيب المطلوب
+      let cardsHTML = '';
+      
+      // H₂S - دائماً تظهر
+      cardsHTML += '<div class="card ' + (d.H2S>20?'danger':'') + '">☠️ H₂S<span>' + safeText(d.H2S) + '</span>ppm</div>';
+      // CO - دائماً تظهر
+      cardsHTML += '<div class="card ' + (d.CO>50?'danger':'') + '">🔥 CO<span>' + safeText(d.CO) + '</span>ppm</div>';
+      // CO₂ - دائماً تظهر
+      cardsHTML += '<div class="card">☁️ CO₂<span>' + safeText(d.CO2) + '</span>ppm</div>';
+      // NO₂ - دائماً تظهر
+      cardsHTML += '<div class="card">🧪 NO₂<span>' + safeText(d.NO2) + '</span>ppm</div>';
+      // NH₃ - دائماً تظهر
+      cardsHTML += '<div class="card">🤖 NH₃<span>' + safeText(d.NH3) + '</span>ppm</div>';
+      
+      // CH₄ - تبدأ بصفر
+      let ch4Class = zeroGasesValues['CH4'] > 0 ? '' : ' hidden-card';
+      cardsHTML += '<div class="card' + ch4Class + '">💨 CH₄<span>' + safeText(zeroGasesValues['CH4']) + '</span>ppm</div>';
+      
+      // O₃ - دائماً تظهر
+      cardsHTML += '<div class="card">🧬 O₃<span>' + safeText(d.O3) + '</span>ppm</div>';
+      
+      // TEMP - دائماً تظهر
+      cardsHTML += '<div class="card">🌡 TEMP<span>' + safeText(d.TEMP) + '</span>°C</div>';
+      // HUM - دائماً تظهر
+      cardsHTML += '<div class="card">💧 HUM<span>' + safeText(d.HUM) + '</span>%</div>';
+      
+      // SMOKE - تبدأ بصفر
+      let smokeClass = zeroGasesValues['SMOKE'] > 0 ? '' : ' hidden-card';
+      cardsHTML += '<div class="card' + smokeClass + '">🌫 SMOKE<span>' + safeText(zeroGasesValues['SMOKE']) + '</span>%</div>';
+
+      document.getElementById("cards").innerHTML = cardsHTML;
 
       let t = new Date().toLocaleTimeString();
       labels.push(t);
@@ -490,9 +532,7 @@ wss.on("connection", (ws, req) => {
     console.log("📷 Camera connected via WebSocket");
     cameraSocket = ws;
     ws.on("message", (data) => {
-      // استقبل الإطار الثنائي من ESP32-CAM
       latestFrame = data;
-      // بث الإطار إلى جميع المتصفحات المتصلة
       for (const client of clients) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(data);
@@ -506,7 +546,7 @@ wss.on("connection", (ws, req) => {
     return;
   }
 
-  // قناة التحكم (جديدة للتحكم المباشر)
+  // قناة التحكم (للتحكم المباشر)
   if (path === "/control-ws") {
     console.log("🎮 Control client connected");
     controlClients.add(ws);
@@ -518,7 +558,6 @@ wss.on("connection", (ws, req) => {
         if (cmd && ALLOWED_COMMANDS.has(cmd)) {
           lastCommand = cmd;
           console.log("🎮 Command received:", cmd);
-          // بث الأمر إلى جميع عملاء التحكم الآخرين (بما فيهم ESP32)
           for (const client of controlClients) {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify({ cmd: cmd }));
@@ -541,7 +580,6 @@ wss.on("connection", (ws, req) => {
   // اتصال متصفح عادي (كاميرا)
   console.log("🌐 Browser client connected");
   clients.add(ws);
-  // أرسل آخر إطار موجود فور الاتصال
   if (latestFrame && ws.readyState === WebSocket.OPEN) {
     ws.send(latestFrame);
   }
