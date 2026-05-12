@@ -6,14 +6,12 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1kb" }));
 
-// ================= STATE =================
 let robotRaw = {};
 let lastCommand = "";
 let gpsData = { lat: 0, lon: 0 };
 let logs = [];
 let latestFrame = null;
 
-// ================= أوامر مسموحة =================
 const ALLOWED_COMMANDS = new Set([
   "FWD", "BACK", "LEFT", "RIGHT", "STOP",
   "RC", "WEB",
@@ -21,7 +19,6 @@ const ALLOWED_COMMANDS = new Set([
   "LIGHT_ON", "LIGHT_OFF"
 ]);
 
-// ================= RECEIVE =================
 app.post("/data", (req, res) => {
   robotRaw = req.body || {};
   const d = mapData(robotRaw);
@@ -35,7 +32,6 @@ app.post("/gps", (req, res) => {
   res.send("OK");
 });
 
-// ================= MAPPING =================
 function mapData(d) {
   return {
     H2S:  sanitize(d.H2S)  ?? sanitize(d.G5) ?? 0,
@@ -56,7 +52,6 @@ function sanitize(val) {
   return val;
 }
 
-// ================= SEND =================
 app.get("/data", (req, res) => res.json(mapData(robotRaw)));
 app.get("/logs", (req, res) => res.json(logs));
 app.get("/gps", (req, res) => res.json(gpsData));
@@ -70,10 +65,8 @@ app.post("/control", (req, res) => {
 });
 app.get("/control", (req, res) => res.send(lastCommand));
 
-// ================= DASHBOARD =================
 app.get("/", (req, res) => {
-  res.send(`
-<!DOCTYPE html>
+  res.send(`<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -188,11 +181,9 @@ function update() {
 update(); setInterval(update, 2000);
 </script>
 </body>
-</html>
-`);
+</html>`);
 });
 
-// ================== WebSocket Server ==================
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const clients = new Set();
