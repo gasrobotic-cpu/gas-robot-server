@@ -344,7 +344,7 @@ function bindHold(btn) {
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     sendCmd(cmd); // أرسل أول أمر فوراً
-    intervalId = setInterval(() => sendCmd(cmd), 100); // ثم كل 100 مللي ثانية
+    intervalId = setInterval(() => sendCmd(cmd), 150); // ثم كل 100 مللي ثانية
   });
 
   const stopNow = () => {
