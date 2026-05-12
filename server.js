@@ -6,12 +6,14 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1kb" }));
 
+// ================= STATE =================
 let robotRaw = {};
 let lastCommand = "";
 let gpsData = { lat: 0, lon: 0 };
 let logs = [];
 let latestFrame = null;
 
+// ================= أوامر مسموحة =================
 const ALLOWED_COMMANDS = new Set([
   "FWD", "BACK", "LEFT", "RIGHT", "STOP",
   "RC", "WEB",
@@ -19,6 +21,7 @@ const ALLOWED_COMMANDS = new Set([
   "LIGHT_ON", "LIGHT_OFF"
 ]);
 
+// ================= RECEIVE =================
 app.post("/data", (req, res) => {
   robotRaw = req.body || {};
   const d = mapData(robotRaw);
@@ -32,6 +35,7 @@ app.post("/gps", (req, res) => {
   res.send("OK");
 });
 
+// ================= MAPPING =================
 function mapData(d) {
   return {
     H2S:  sanitize(d.H2S)  ?? sanitize(d.G5) ?? 0,
@@ -52,6 +56,7 @@ function sanitize(val) {
   return val;
 }
 
+// ================= SEND =================
 app.get("/data", (req, res) => res.json(mapData(robotRaw)));
 app.get("/logs", (req, res) => res.json(logs));
 app.get("/gps", (req, res) => res.json(gpsData));
@@ -63,8 +68,14 @@ app.post("/control", (req, res) => {
   console.log("📝 HTTP Control:", cmd);
   res.send("OK");
 });
-app.get("/control", (req, res) => res.send(lastCommand));
 
+// نقطة نهاية لإعادة تعيين الأمر بعد قراءته (حتى لا يتكرر)
+app.get("/control", (req, res) => {
+  res.send(lastCommand);
+  lastCommand = ""; // مسح الأمر بعد الإرسال
+});
+
+// ================= DASHBOARD =================
 app.get("/", (req, res) => {
   res.send(`<!DOCTYPE html>
 <html>
@@ -116,24 +127,14 @@ button:hover{background:#4b5563}
 </div>
 </div>
 <script>
-let controlWs = null;
-function connectControlWs() {
-  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  controlWs = new WebSocket(protocol + '://' + location.host + '/control-ws');
-  controlWs.onopen = () => console.log('🎮 Control WebSocket connected');
-  controlWs.onclose = () => { console.log('🎮 Control WebSocket disconnected'); setTimeout(connectControlWs, 2000); };
-}
+// إرسال الأوامر عبر HTTP POST مباشرة
 function sendCmd(cmd) {
-  if (controlWs && controlWs.readyState === WebSocket.OPEN) {
-    controlWs.send(JSON.stringify({ cmd: cmd }));
-  } else {
-    fetch('/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
-  }
+  fetch('/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
 }
 function bindHold(btn) {
   let cmd = btn.dataset.cmd; if (!cmd) return;
   let intervalId = null;
-  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd(cmd); intervalId = setInterval(() => sendCmd(cmd), 100); });
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd(cmd); intervalId = setInterval(() => sendCmd(cmd), 200); });
   const stopNow = () => { if (intervalId) { clearInterval(intervalId); intervalId = null; } sendCmd("STOP"); };
   btn.addEventListener('pointerup', stopNow); btn.addEventListener('pointerleave', stopNow);
   btn.addEventListener('touchend', stopNow); btn.addEventListener('touchcancel', stopNow);
@@ -157,7 +158,7 @@ function connectCamera() {
   camSocket.onmessage = (event) => { const blob = new Blob([event.data], { type: 'image/jpeg' }); const url = URL.createObjectURL(blob); camImg.src = url; setTimeout(() => URL.revokeObjectURL(url), 1000); };
   camSocket.onclose = () => { console.log('📷 Camera WebSocket closed'); setTimeout(connectCamera, 3000); };
 }
-connectCamera(); connectControlWs();
+connectCamera();
 function update() {
   fetch('/data').then(r => r.json()).then(d => {
     document.getElementById("status").innerHTML = (d.CO > 50 || d.H2S > 20) ? "⚠️ DANGER" : "✅ SAFE";
@@ -187,7 +188,6 @@ update(); setInterval(update, 2000);
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const clients = new Set();
-const controlClients = new Set();
 let cameraSocket = null;
 
 wss.on("connection", (ws, req) => {
@@ -197,21 +197,6 @@ wss.on("connection", (ws, req) => {
     cameraSocket = ws;
     ws.on("message", (data) => { latestFrame = data; for (const client of clients) { if (client.readyState === WebSocket.OPEN) client.send(data); } });
     ws.on("close", () => { console.log("📷 Camera disconnected"); cameraSocket = null; });
-    return;
-  }
-  if (path === "/control-ws") {
-    console.log("🎮 Control client connected (Total: " + (controlClients.size + 1) + ")");
-    controlClients.add(ws);
-    ws.on("message", (data) => {
-      try {
-        const msg = JSON.parse(data); const cmd = msg.cmd;
-        if (cmd && ALLOWED_COMMANDS.has(cmd)) {
-          lastCommand = cmd;
-          for (const client of controlClients) { if (client !== ws && client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ cmd: cmd })); }
-        }
-      } catch (e) {}
-    });
-    ws.on("close", () => { controlClients.delete(ws); });
     return;
   }
   console.log("🌐 Browser client connected"); clients.add(ws);
