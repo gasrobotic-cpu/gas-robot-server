@@ -4,39 +4,28 @@ const WebSocket = require("ws");
 
 const app = express();
 
-// ================= SECURITY =================
+// تعطيل توقيع الخادم
 app.disable("x-powered-by");
 
-app.use(express.json({
-  limit: "1kb"
-}));
-
-// ================= SERVER HOST =================
-const SERVER_HOST = "gas-robot-server.onrender.com";
+// حماية من الطلبات الكبيرة
+app.use(express.json({ limit: "1kb" }));
 
 // ================= STATE =================
 let robotRaw = {};
-
 let lastCommand = "";
-
-let gpsData = {
-  lat: 0,
-  lon: 0
-};
-
+let gpsData = { lat: 0, lon: 0 };
 let logs = [];
 
-// ================= CAMERA =================
+// أحدث إطار كاميرا
 let latestFrame = null;
+
+// ================= CLIENTS =================
+const clients = new Set();
+const controlClients = new Set();
 
 let cameraSocket = null;
 
-// ================= CLIENTS =================
-const viewerClients = new Set();
-
-const controlClients = new Set();
-
-// ================= ALLOWED COMMANDS =================
+// ================= COMMANDS =================
 const ALLOWED_COMMANDS = new Set([
   "FWD",
   "BACK",
@@ -53,95 +42,32 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 // ================= SANITIZE =================
-function sanitize(val)
-{
-  if (typeof val === "string")
-  {
+function sanitize(val) {
+  if (typeof val === "string") {
     return val.replace(/[<>"']/g, "");
   }
-
   return val;
 }
 
-// ================= DATA MAPPING =================
-function mapData(d)
-{
+// ================= DATA MAP =================
+function mapData(d) {
   return {
-    H2S:
-      sanitize(d.H2S)
-      ??
-      sanitize(d.G5)
-      ??
-      0,
-
-    CO:
-      sanitize(d.CO)
-      ??
-      sanitize(d.G1)
-      ??
-      0,
-
-    CO2:
-      sanitize(d.CO2)
-      ??
-      sanitize(d.G7)
-      ??
-      0,
-
-    NO2:
-      sanitize(d.NO2)
-      ??
-      sanitize(d.G3)
-      ??
-      0,
-
-    NH3:
-      sanitize(d.NH3)
-      ??
-      sanitize(d.G2)
-      ??
-      0,
-
-    CH4:
-      sanitize(d.CH4)
-      ??
-      sanitize(d.G4)
-      ??
-      0,
-
-    O3:
-      sanitize(d.O3)
-      ??
-      sanitize(d.G6)
-      ??
-      0,
-
-    TEMP:
-      sanitize(d.TEMP)
-      ??
-      sanitize(d.T)
-      ??
-      0,
-
-    HUM:
-      sanitize(d.HUM)
-      ??
-      sanitize(d.H)
-      ??
-      0,
-
-    SMOKE:
-      sanitize(d.SMOKE)
-      ??
-      sanitize(d.G8)
-      ??
-      0
+    H2S: sanitize(d.H2S) ?? sanitize(d.G5) ?? 0,
+    CO: sanitize(d.CO) ?? sanitize(d.G1) ?? 0,
+    CO2: sanitize(d.CO2) ?? sanitize(d.G7) ?? 0,
+    NO2: sanitize(d.NO2) ?? sanitize(d.G3) ?? 0,
+    NH3: sanitize(d.NH3) ?? sanitize(d.G2) ?? 0,
+    CH4: sanitize(d.CH4) ?? sanitize(d.G4) ?? 0,
+    O3: sanitize(d.O3) ?? sanitize(d.G6) ?? 0,
+    TEMP: sanitize(d.TEMP) ?? sanitize(d.T) ?? 0,
+    HUM: sanitize(d.HUM) ?? sanitize(d.H) ?? 0,
+    SMOKE: sanitize(d.SMOKE) ?? sanitize(d.G8) ?? 0
   };
 }
 
-// ================= RECEIVE DATA =================
-app.post("/data", (req, res) =>
-{
+// ================= RECEIVE SENSOR DATA =================
+app.post("/data", (req, res) => {
+
   robotRaw = req.body || {};
 
   const d = mapData(robotRaw);
@@ -151,8 +77,7 @@ app.post("/data", (req, res) =>
     ...d
   });
 
-  if (logs.length > 20)
-  {
+  if (logs.length > 20) {
     logs.pop();
   }
 
@@ -160,36 +85,32 @@ app.post("/data", (req, res) =>
 });
 
 // ================= RECEIVE GPS =================
-app.post("/gps", (req, res) =>
-{
+app.post("/gps", (req, res) => {
+
   gpsData = req.body || gpsData;
 
   res.send("OK");
 });
 
 // ================= SEND DATA =================
-app.get("/data", (req, res) =>
-{
+app.get("/data", (req, res) => {
   res.json(mapData(robotRaw));
 });
 
-app.get("/logs", (req, res) =>
-{
+app.get("/logs", (req, res) => {
   res.json(logs);
 });
 
-app.get("/gps", (req, res) =>
-{
+app.get("/gps", (req, res) => {
   res.json(gpsData);
 });
 
-// ================= HTTP CONTROL =================
-app.post("/control", (req, res) =>
-{
+// ================= CONTROL =================
+app.post("/control", (req, res) => {
+
   const cmd = req.body.cmd;
 
-  if (!cmd || !ALLOWED_COMMANDS.has(cmd))
-  {
+  if (!cmd || !ALLOWED_COMMANDS.has(cmd)) {
     return res.status(400).send("BAD COMMAND");
   }
 
@@ -200,14 +121,13 @@ app.post("/control", (req, res) =>
   res.send("OK");
 });
 
-app.get("/control", (req, res) =>
-{
+app.get("/control", (req, res) => {
   res.send(lastCommand);
 });
 
 // ================= DASHBOARD =================
-app.get("/", (req, res) =>
-{
+app.get("/", (req, res) => {
+
 res.send(`
 <!DOCTYPE html>
 <html>
@@ -220,10 +140,8 @@ res.send(`
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<link
-rel="stylesheet"
-href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -242,6 +160,7 @@ body{
   min-height:100vh;
 }
 
+/* SIDEBAR */
 .sidebar{
   width:260px;
   background:#111827;
@@ -257,6 +176,7 @@ body{
   z-index:1000;
 }
 
+/* MAIN */
 .main{
   flex:1;
   padding:20px;
@@ -265,6 +185,7 @@ body{
   flex-direction:column;
 }
 
+/* CAMERA */
 .camera-section{
   width:100%;
   margin-bottom:20px;
@@ -273,11 +194,12 @@ body{
 
 #camera-img{
   width:100%;
-  max-width:700px;
+  max-width:640px;
   border-radius:12px;
   border:2px solid #1f2937;
 }
 
+/* CARDS */
 .cards{
   display:grid;
   grid-template-columns:repeat(5,1fr);
@@ -295,7 +217,6 @@ body{
 .card span{
   font-size:22px;
   display:block;
-  margin-top:5px;
 }
 
 .danger{
@@ -309,6 +230,7 @@ body{
   }
 }
 
+/* CONTROL */
 .grid{
   display:grid;
   grid-template-columns:repeat(3,70px);
@@ -325,6 +247,8 @@ body{
   font-size:18px;
   touch-action:none;
   user-select:none;
+  -webkit-user-select:none;
+  -webkit-touch-callout:none;
   cursor:pointer;
 }
 
@@ -332,6 +256,7 @@ body{
   background:#374151;
 }
 
+/* STATUS */
 .status{
   background:#1f2937;
   padding:10px;
@@ -341,6 +266,7 @@ body{
   font-weight:bold;
 }
 
+/* LAYOUT */
 .bottom{
   display:grid;
   grid-template-columns:1fr;
@@ -355,6 +281,14 @@ body{
   z-index:1;
 }
 
+.map-container{
+  width:100%;
+}
+
+.map-container h3{
+  margin-bottom:10px;
+}
+
 #logs{
   background:#1f2937;
   padding:10px;
@@ -364,6 +298,7 @@ body{
   font-size:12px;
 }
 
+/* BUTTONS */
 button{
   padding:10px;
   border-radius:8px;
@@ -372,38 +307,11 @@ button{
   color:white;
   cursor:pointer;
   font-size:14px;
+  transition:0.2s;
 }
 
 button:hover{
   background:#4b5563;
-}
-
-@media(max-width:1200px)
-{
-  .cards{
-    grid-template-columns:repeat(3,1fr);
-  }
-}
-
-@media(max-width:900px)
-{
-  .sidebar{
-    width:100%;
-    height:auto;
-    position:relative;
-  }
-
-  .main{
-    margin-left:0;
-  }
-
-  body{
-    flex-direction:column;
-  }
-
-  .cards{
-    grid-template-columns:repeat(2,1fr);
-  }
 }
 
 </style>
@@ -412,8 +320,7 @@ button:hover{
 
 <body oncontextmenu="return false">
 
-<!-- ================= SIDEBAR ================= -->
-
+<!-- SIDEBAR -->
 <div class="sidebar">
 
 <h3>🎮 Mode</h3>
@@ -446,43 +353,27 @@ button:hover{
 
 <div></div>
 
-<button
-class="ctrl-btn"
-data-cmd="FWD"
->
+<button class="ctrl-btn" data-cmd="FWD">
 ⬆
 </button>
 
 <div></div>
 
-<button
-class="ctrl-btn"
-data-cmd="LEFT"
->
+<button class="ctrl-btn" data-cmd="LEFT">
 ⬅
 </button>
 
-<button
-class="ctrl-btn"
-id="stop-btn"
-data-cmd="STOP"
->
+<button class="ctrl-btn" id="stop-btn" data-cmd="STOP">
 ⛔
 </button>
 
-<button
-class="ctrl-btn"
-data-cmd="RIGHT"
->
+<button class="ctrl-btn" data-cmd="RIGHT">
 ➡
 </button>
 
 <div></div>
 
-<button
-class="ctrl-btn"
-data-cmd="BACK"
->
+<button class="ctrl-btn" data-cmd="BACK">
 ⬇
 </button>
 
@@ -502,58 +393,43 @@ OFF
 
 </div>
 
-<!-- ================= MAIN ================= -->
-
+<!-- MAIN -->
 <div class="main">
 
 <h2>
 📊 Industrial Gas Monitoring Dashboard
 </h2>
 
-<!-- ================= CAMERA ================= -->
-
+<!-- CAMERA -->
 <div class="camera-section">
 
 <h4>
 📷 Live Camera
 </h4>
 
-<img
-id="camera-img"
-alt="Robot Camera"
-/>
+<img id="camera-img" alt="Robot Camera">
 
 </div>
 
-<!-- ================= CARDS ================= -->
+<!-- CARDS -->
+<div class="cards" id="cards"></div>
 
-<div
-class="cards"
-id="cards"
-></div>
-
-<!-- ================= STATUS ================= -->
-
-<div
-id="status"
-class="status"
->
+<!-- STATUS -->
+<div id="status" class="status">
 Status: SAFE
 </div>
 
-<!-- ================= GRAPH ================= -->
-
+<!-- GRAPH -->
 <h3>
 📈 Multi-Gas Trend
 </h3>
 
 <canvas id="chart"></canvas>
 
-<!-- ================= MAP + LOGS ================= -->
-
+<!-- MAP + LOGS -->
 <div class="bottom">
 
-<div>
+<div class="map-container">
 
 <h3>
 📍 Live Location Map
@@ -580,11 +456,10 @@ Status: SAFE
 <script>
 
 // ================= CONTROL WEBSOCKET =================
-
 let controlWs = null;
 
-function connectControlWs()
-{
+function connectControlWs() {
+
   const protocol =
     location.protocol === 'https:'
     ?
@@ -598,70 +473,45 @@ function connectControlWs()
     location.host +
     '/control-ws';
 
-  console.log(
-    '🎮 Connecting:',
-    wsUrl
-  );
+  console.log('🎮 Connecting WS:', wsUrl);
 
-  controlWs =
-    new WebSocket(wsUrl);
+  controlWs = new WebSocket(wsUrl);
 
-  controlWs.onopen = () =>
-  {
-    console.log(
-      '🎮 Control WS Connected'
-    );
+  controlWs.onopen = () => {
+    console.log('🎮 WS CONNECTED');
   };
 
-  controlWs.onclose = () =>
-  {
-    console.log(
-      '🎮 Control WS Closed'
-    );
+  controlWs.onclose = () => {
 
-    setTimeout(
-      connectControlWs,
-      2000
-    );
+    console.log('🎮 WS CLOSED');
+
+    setTimeout(connectControlWs, 2000);
   };
 
-  controlWs.onerror = (err) =>
-  {
-    console.log(
-      '🎮 WS ERROR',
-      err
-    );
+  controlWs.onerror = (err) => {
+    console.error(err);
   };
 }
 
 // ================= SEND COMMAND =================
-
-function sendCmd(cmd)
-{
-  console.log(
-    '📤 CMD:',
-    cmd
-  );
+function sendCmd(cmd) {
 
   if (
     controlWs &&
     controlWs.readyState === WebSocket.OPEN
-  )
-  {
+  ) {
     controlWs.send(
       JSON.stringify({
         cmd: cmd
       })
     );
   }
-  else
-  {
-    fetch('/control',
-    {
+  else {
+
+    fetch('/control', {
       method:'POST',
 
-      headers:
-      {
+      headers:{
         'Content-Type':'application/json'
       },
 
@@ -673,90 +523,62 @@ function sendCmd(cmd)
 }
 
 // ================= HOLD CONTROL =================
+function bindHold(btn) {
 
-function bindHold(btn)
-{
   let cmd = btn.dataset.cmd;
 
-  if (!cmd)
-  {
-    return;
-  }
+  if (!cmd) return;
 
-  // STOP لا يحتاج repeat
-  if (cmd === "STOP")
-  {
-    btn.addEventListener(
-      'click',
-      (e) =>
-      {
-        e.preventDefault();
+  // STOP منفصل
+  if (cmd === "STOP") {
 
-        sendCmd("STOP");
-      }
-    );
+    btn.addEventListener('click', (e) => {
+
+      e.preventDefault();
+
+      sendCmd("STOP");
+    });
 
     return;
   }
 
   let intervalId = null;
 
-  const start = (e) =>
-  {
+  const start = (e) => {
+
     e.preventDefault();
 
-    if (intervalId)
-    {
+    if (intervalId) {
       clearInterval(intervalId);
     }
 
     sendCmd(cmd);
 
     intervalId =
-      setInterval(() =>
-      {
+      setInterval(() => {
+
         sendCmd(cmd);
+
       }, 150);
   };
 
-  const stop = (e) =>
-  {
+  const stopNow = (e) => {
+
     e.preventDefault();
 
-    if (intervalId)
-    {
+    if (intervalId) {
       clearInterval(intervalId);
-
       intervalId = null;
     }
 
     sendCmd("STOP");
   };
 
-  btn.addEventListener(
-    'pointerdown',
-    start
-  );
-
-  btn.addEventListener(
-    'pointerup',
-    stop
-  );
-
-  btn.addEventListener(
-    'pointerleave',
-    stop
-  );
-
-  btn.addEventListener(
-    'touchend',
-    stop
-  );
-
-  btn.addEventListener(
-    'touchcancel',
-    stop
-  );
+  btn.addEventListener('pointerdown', start);
+  btn.addEventListener('pointerup', stopNow);
+  btn.addEventListener('pointerleave', stopNow);
+  btn.addEventListener('touchend', stopNow);
+  btn.addEventListener('touchcancel', stopNow);
 }
 
 document
@@ -764,11 +586,9 @@ document
 .forEach(bindHold);
 
 // ================= GRAPH =================
-
 let labels = [];
 
-let dataSets =
-{
+let dataSets = {
   CO:[],
   H2S:[],
   NH3:[],
@@ -784,12 +604,11 @@ document.getElementById("chart"),
 {
   type:'line',
 
-  data:
-  {
+  data:{
     labels:labels,
 
-    datasets:
-    [
+    datasets:[
+
       {
         label:'CO',
         data:dataSets.CO,
@@ -834,14 +653,12 @@ document.getElementById("chart"),
     ]
   },
 
-  options:
-  {
+  options:{
     animation:false
   }
 });
 
 // ================= MAP =================
-
 let map =
 L.map('map')
 .setView([15.3,44.2],13);
@@ -855,31 +672,23 @@ L.marker([15.3,44.2])
 .addTo(map);
 
 // ================= SAFE TEXT =================
+function safeText(val) {
 
-function safeText(val)
-{
-  if (typeof val !== 'number')
-  {
-    val =
-      parseFloat(val)
-      ||
-      0;
+  if (typeof val !== 'number') {
+    val = parseFloat(val) || 0;
   }
 
   return val.toFixed(1);
 }
 
-// ================= CAMERA WEBSOCKET =================
-
+// ================= CAMERA =================
 const camImg =
-document.getElementById(
-  'camera-img'
-);
+document.getElementById('camera-img');
 
 let camSocket = null;
 
-function connectCamera()
-{
+function connectCamera() {
+
   const protocol =
     location.protocol === 'https:'
     ?
@@ -887,6 +696,7 @@ function connectCamera()
     :
     'ws';
 
+  // ✅ FIXED
   camSocket =
     new WebSocket(
       protocol +
@@ -895,129 +705,117 @@ function connectCamera()
       '/viewer'
     );
 
-  camSocket.binaryType =
-    'arraybuffer';
+  camSocket.binaryType = 'arraybuffer';
 
-  camSocket.onopen = () =>
-  {
-    console.log(
-      '📷 Camera Connected'
-    );
+  camSocket.onopen = () => {
+    console.log('📷 Camera Connected');
   };
 
-  camSocket.onmessage = (event) =>
-  {
+  camSocket.onmessage = (event) => {
+
     const blob =
       new Blob(
-      [event.data],
-      {
-        type:'image/jpeg'
-      });
+        [event.data],
+        {
+          type:'image/jpeg'
+        }
+      );
 
     const url =
       URL.createObjectURL(blob);
 
     camImg.src = url;
 
-    setTimeout(() =>
-    {
+    setTimeout(() => {
       URL.revokeObjectURL(url);
     }, 1000);
   };
 
-  camSocket.onclose = () =>
-  {
-    console.log(
-      '📷 Camera Closed'
-    );
+  camSocket.onclose = () => {
 
-    setTimeout(
-      connectCamera,
-      3000
-    );
+    console.log('📷 Camera Closed');
+
+    setTimeout(connectCamera, 3000);
   };
 }
 
+// ================= START SOCKETS =================
+connectCamera();
+connectControlWs();
+
 // ================= UPDATE =================
+function update() {
 
-function update()
-{
-  // ================= DATA =================
-
+  // DATA
   fetch('/data')
-  .then(r =>
-  {
-    if (!r.ok)
-    {
-      throw new Error(
-        'SERVER ERROR'
-      );
+  .then(r => {
+
+    if (!r.ok) {
+      throw new Error('SERVER ERROR');
     }
 
     return r.json();
   })
-  .then(d =>
-  {
+
+  .then(d => {
+
     let danger =
       d.CO > 50 ||
       d.H2S > 20;
 
-    document
-    .getElementById("status")
-    .innerHTML =
+    document.getElementById("status").innerHTML =
       danger
       ?
       "⚠️ DANGER"
       :
       "✅ SAFE";
 
-    document
-    .getElementById("cards")
-    .innerHTML =
+    // CARDS
+    document.getElementById("cards").innerHTML =
 
-    '<div class="card ' +
-    (d.H2S>20?'danger':'') +
-    '">☠️ H₂S<span>' +
-    safeText(d.H2S) +
-    '</span>ppm</div>' +
+      '<div class="card ' +
+      (d.H2S>20?'danger':'') +
+      '">☠️ H₂S<span>' +
+      safeText(d.H2S) +
+      '</span>ppm</div>' +
 
-    '<div class="card ' +
-    (d.CO>50?'danger':'') +
-    '">🔥 CO<span>' +
-    safeText(d.CO) +
-    '</span>ppm</div>' +
+      '<div class="card ' +
+      (d.CO>50?'danger':'') +
+      '">🔥 CO<span>' +
+      safeText(d.CO) +
+      '</span>ppm</div>' +
 
-    '<div class="card">☁️ CO₂<span>' +
-    safeText(d.CO2) +
-    '</span>ppm</div>' +
+      '<div class="card">☁️ CO₂<span>' +
+      safeText(d.CO2) +
+      '</span>ppm</div>' +
 
-    '<div class="card">🧪 NO₂<span>' +
-    safeText(d.NO2) +
-    '</span>ppm</div>' +
+      '<div class="card">🧪 NO₂<span>' +
+      safeText(d.NO2) +
+      '</span>ppm</div>' +
 
-    '<div class="card">🤖 NH₃<span>' +
-    safeText(d.NH3) +
-    '</span>ppm</div>' +
+      '<div class="card">🤖 NH₃<span>' +
+      safeText(d.NH3) +
+      '</span>ppm</div>' +
 
-    '<div class="card">💨 CH₄<span>' +
-    safeText(d.CH4) +
-    '</span>ppm</div>' +
+      '<div class="card">💨 CH₄<span>' +
+      safeText(d.CH4) +
+      '</span>ppm</div>' +
 
-    '<div class="card">🧬 O₃<span>' +
-    safeText(d.O3) +
-    '</span>ppm</div>' +
+      '<div class="card">🧬 O₃<span>' +
+      safeText(d.O3) +
+      '</span>ppm</div>' +
 
-    '<div class="card">🌡 TEMP<span>' +
-    safeText(d.TEMP) +
-    '</span>°C</div>' +
+      '<div class="card">🌡 TEMP<span>' +
+      safeText(d.TEMP) +
+      '</span>°C</div>' +
 
-    '<div class="card">💧 HUM<span>' +
-    safeText(d.HUM) +
-    '</span>%</div>' +
+      '<div class="card">💧 HUM<span>' +
+      safeText(d.HUM) +
+      '</span>%</div>' +
 
-    '<div class="card">🌫 SMOKE<span>' +
-    safeText(d.SMOKE) +
-    '</span>%</div>';
+      '<div class="card">🌫 SMOKE<span>' +
+      safeText(d.SMOKE) +
+      '</span>%</div>';
 
     let t =
       new Date()
@@ -1025,33 +823,32 @@ function update()
 
     labels.push(t);
 
-    for(let k in dataSets)
-    {
-      dataSets[k]
-      .push(d[k] || 0);
+    for(let k in dataSets) {
+      dataSets[k].push(d[k] || 0);
     }
 
-    if(labels.length > 15)
-    {
+    if(labels.length > 15) {
+
       labels.shift();
 
-      for(let k in dataSets)
-      {
+      for(let k in dataSets) {
         dataSets[k].shift();
       }
     }
 
     chart.update();
-  });
+  })
 
-  // ================= GPS =================
+  .catch(err => console.error(err));
 
+  // GPS
   fetch('/gps')
   .then(r => r.json())
-  .then(g =>
-  {
-    if(g.lat && g.lon)
-    {
+
+  .then(g => {
+
+    if(g.lat && g.lon) {
+
       marker.setLatLng([
         g.lat,
         g.lon
@@ -1064,112 +861,89 @@ function update()
     }
   });
 
-  // ================= LOGS =================
-
+  // LOGS
   fetch('/logs')
   .then(r => r.json())
-  .then(arr =>
-  {
-    if(!Array.isArray(arr))
-    {
-      return;
-    }
 
-    document
-    .getElementById("logs")
-    .innerHTML =
+  .then(arr => {
+
+    if (!Array.isArray(arr)) return;
+
+    document.getElementById("logs").innerHTML =
+
       arr.map(l =>
 
-      '<div>' +
+        '<div>' +
 
-      l.time +
+        l.time +
 
-      ' | CO:' +
+        ' | CO:' +
 
-      safeText(l.CO) +
+        safeText(l.CO) +
 
-      ' | H₂S:' +
+        ' | H₂S:' +
 
-      safeText(l.H2S) +
+        safeText(l.H2S) +
 
-      '</div>'
+        '</div>'
 
       ).join('');
   });
 }
 
-// ================= START =================
-
-connectControlWs();
-
-connectCamera();
-
+// ================= START UPDATE =================
 update();
 
-setInterval(update,2000);
+setInterval(update, 2000);
 
 </script>
 
 </body>
-
 </html>
 `);
 });
 
 // ================= HTTP SERVER =================
-
-const httpServer =
-http.createServer(app);
+const server = http.createServer(app);
 
 // ================= WEBSOCKET SERVER =================
-
 const wss =
 new WebSocket.Server({
-  server:httpServer
+  server
 });
 
-// ================= CONNECTIONS =================
+// ================= WEBSOCKET CONNECTIONS =================
+wss.on("connection", (ws, req) => {
 
-wss.on("connection", (ws, req) =>
-{
   const path = req.url;
 
-  console.log(
-    "🔗 WS CONNECT:",
-    path
-  );
+  console.log("🔗 WS:", path);
 
   // ================= CAMERA SOURCE =================
+  if (path === "/cam-stream") {
 
-  if (path === "/cam-stream")
-  {
-    console.log(
-      "📷 CAMERA SOURCE CONNECTED"
-    );
+    console.log("📷 Camera Source Connected");
 
     cameraSocket = ws;
 
-    ws.on("message", (data) =>
-    {
+    ws.on("message", (data) => {
+
       latestFrame = data;
 
-      for (const client of viewerClients)
-      {
+      for (const client of clients) {
+
         if (
           client.readyState ===
           WebSocket.OPEN
-        )
-        {
+        ) {
           client.send(data);
         }
       }
     });
 
-    ws.on("close", () =>
-    {
-      console.log(
-        "📷 CAMERA DISCONNECTED"
-      );
+    ws.on("close", () => {
+
+      console.log("📷 Camera Source Closed");
 
       cameraSocket = null;
     });
@@ -1178,74 +952,67 @@ wss.on("connection", (ws, req) =>
   }
 
   // ================= CAMERA VIEWER =================
+  if (path === "/viewer") {
 
-  if (path === "/viewer")
-  {
-    console.log(
-      "🌐 CAMERA VIEWER CONNECTED"
-    );
+    console.log("🌐 Viewer Connected");
 
-    viewerClients.add(ws);
+    clients.add(ws);
 
     if (
       latestFrame &&
       ws.readyState === WebSocket.OPEN
-    )
-    {
+    ) {
       ws.send(latestFrame);
     }
 
-    ws.on("close", () =>
-    {
-      viewerClients.delete(ws);
+    ws.on("close", () => {
+
+      clients.delete(ws);
     });
 
     return;
   }
 
   // ================= CONTROL =================
+  if (path === "/control-ws") {
 
-  if (path === "/control-ws")
-  {
-    console.log(
-      "🎮 CONTROL CONNECTED"
-    );
+    console.log("🎮 Control Connected");
 
     controlClients.add(ws);
 
-    ws.on("message", (data) =>
-    {
-      try
-      {
+    ws.on("message", (data) => {
+
+      try {
+
         const msg =
           JSON.parse(data);
 
         const cmd =
           msg.cmd;
 
-        console.log(
-          "🎮 CMD:",
-          cmd
-        );
-
         if (
           cmd &&
           ALLOWED_COMMANDS.has(cmd)
-        )
-        {
+        ) {
+
           lastCommand = cmd;
+
+          console.log(
+            "🎮 CMD:",
+            cmd
+          );
 
           for (
             const client
             of controlClients
-          )
-          {
+          ) {
+
             if (
               client !== ws &&
               client.readyState ===
               WebSocket.OPEN
-            )
-            {
+            ) {
+
               client.send(
                 JSON.stringify({
                   cmd:cmd
@@ -1254,50 +1021,38 @@ wss.on("connection", (ws, req) =>
             }
           }
         }
-      }
-      catch(e)
-      {
+
+      } catch(e) {
+
         console.log(
-          "❌ INVALID WS MESSAGE"
+          "❌ WS ERROR"
         );
       }
     });
 
-    ws.on("close", () =>
-    {
+    ws.on("close", () => {
+
       controlClients.delete(ws);
 
       console.log(
-        "🎮 CONTROL DISCONNECTED"
+        "🎮 Control Closed"
       );
     });
 
     return;
   }
 
-  // ================= UNKNOWN =================
-
-  console.log(
-    "❌ UNKNOWN WS PATH"
-  );
-
   ws.close();
 });
 
-// ================= START SERVER =================
-
+// ================= START =================
 const PORT =
 process.env.PORT || 3000;
 
-httpServer.listen(PORT, () =>
-{
-  console.log(
-    "✅ SERVER RUNNING ON PORT",
-    PORT
-  );
+server.listen(PORT, () => {
 
   console.log(
-    "🌍 HOST:",
-    SERVER_HOST
+    "✅ SERVER RUNNING:",
+    PORT
   );
 });
